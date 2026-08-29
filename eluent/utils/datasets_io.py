@@ -20,7 +20,12 @@ from .package_data import resolve_cache, configure_hf_cache
 
 DATASETS_PREFIX: str = "hf://datasets/"
 
-def hasher(s: str, n: int = 16) -> str:
+def hasher(
+    s: str | bytes,
+    n: int = 16,
+) -> str:
+    if isinstance(s, str):
+        s = s.encode("utf-8")
     return hashlib.sha256(s).hexdigest()[:n]
 
 def _lock_path(
@@ -30,7 +35,7 @@ def _lock_path(
     cache_dir = resolve_cache(cache_dir)
     locks_dir = os.path.join(cache_dir, ".locks")
     os.makedirs(locks_dir, exist_ok=True)
-    h = hasher(key.encode("utf-8"))
+    h = hasher(key)
     return os.path.join(locks_dir, f"{h}.lock")
 
 
@@ -89,7 +94,7 @@ def _load_from_file(
     # Cross-task lock on the shared filesystem
     lockfile = _lock_path(
         key=lock_key,
-        cache=cache, 
+        cache_dir=cache, 
     )
     with FileLock(lockfile, timeout=60. * 60.):
         ds = read_f()
@@ -97,8 +102,7 @@ def _load_from_file(
 
 
 def _load_from_dataframe(
-    cls,
-    dataframe: Union[DataFrame, Mapping[str, ArrayLike], Iterable[Mapping[str, ArrayLike]]],
+    dataframe: DataFrame | Mapping[str, ArrayLike] | Iterable[Mapping[str, ArrayLike]],
     cache: str | None = None
 ) -> Dataset:
     from pandas import DataFrame
@@ -116,7 +120,7 @@ def _load_from_dataframe(
             csv_filename, 
             cache=cache,
         )
-    return ds
+    return ds["train"]
 
 
 def _get_ref_chunk(
@@ -156,7 +160,10 @@ def _resolve_hf_hub_dataset(
         config or "",
         ver or "",
     ])
-    lockfile = _lock_path(cache, lock_key)
+    lockfile = _lock_path(
+        key=lock_key,
+        cache_dir=cache,
+    )
 
     with FileLock(
         lockfile,
@@ -185,10 +192,11 @@ class AutoDataset:
         data: str | DataFrame, 
         cache: str | None = None
     ) -> Union[Dataset, IterableDataset]:
+
+        cache, _, _ = configure_hf_cache(cache)
+
         from datasets import load_dataset, Dataset, IterableDataset
         from pandas import DataFrame
-
-        cache = resolve_cache(cache)
 
         if isinstance(data, (Dataset, IterableDataset)):
             dataset = data

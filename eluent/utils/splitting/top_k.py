@@ -19,7 +19,7 @@ from .grouping import tag_top
     
 
 def get_percentile(
-    ds: Union[Dataset, IterableDataset],
+    ds: Dataset | IterableDataset,
     column: str,
     digest: TDigest,
     p: float,
@@ -72,8 +72,8 @@ def get_percentile(
         desc = {"desc": "Tagging borderline"}
     else:
         desc = {}
-    to_dataset_p = partial(to_dataset, batch_size=batch_size, cache=cache)
-    maybes = to_dataset_p(ds_tfm[0], nrows=dataset_len(ds_tfm[0])).sort(column, reverse=reverse)
+    to_dataset_p = partial(to_dataset, cache=cache)
+    maybes = to_dataset_p(ds_tfm[0]).sort(column, reverse=reverse)
 
     print_err(f"Confidently tagged {n_definitely_true} {column=}, {p=}; need {n_required_from_maybe} / {maybes.num_rows} to make {k} total.")
     maybes_to_true = maybes.take(n_required_from_maybe).map(lambda x: {top_col: 1}, desc="Tagging maybes as True")
@@ -87,9 +87,9 @@ def get_percentile(
             maybes_to_false,
         ])
     final_ds = concatenate_datasets([
-        to_dataset_p(ds_tfm[1], nrows=dataset_len(ds_tfm[1])), 
+        to_dataset_p(ds_tfm[1]), 
         maybes_resolved,
-        to_dataset_p(ds_tfm[-1], nrows=dataset_len(ds_tfm[-1])),
+        to_dataset_p(ds_tfm[-1]),
     ]).map(
         lambda x: {top_col: [v == 1 for v in x[top_col]]}, 
         desc="Polishing percentile column",
@@ -101,7 +101,7 @@ def get_percentile(
 
 
 def percentiles(
-    ds: Union[Dataset, IterableDataset],
+    ds: Dataset | IterableDataset,
     q: Mapping[str, Iterable[float]],
     compression: int = 500,
     delta: float = .01,
