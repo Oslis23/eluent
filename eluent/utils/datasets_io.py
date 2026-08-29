@@ -72,7 +72,10 @@ def _load_from_file(
         raise IOError(f"Could not infer how to open '{filename}' from its extension.")
 
     # Cross-task lock on the shared filesystem
-    lockfile = _lock_path(cache, "_".join(lock_key))
+    lockfile = _lock_path(
+        key="_".join(lock_key),
+        cache=cache, 
+    )
     with FileLock(lockfile, timeout=60. * 60.):
         ds = read_f()
     if isinstance(ds, DatasetDict):
@@ -126,20 +129,34 @@ def _resolve_hf_hub_dataset(
 
     cache, datasets_cache, _ = configure_hf_cache(cache)
     from datasets import concatenate_datasets, load_dataset, DatasetDict
+    from filelock import FileLock
 
     ref = ref.removeprefix(DATASETS_PREFIX).removeprefix("hf://")
     seps = "@~:"
+    repo = _get_ref_chunk(ref, all_seps=seps)
     ver = _get_ref_chunk(ref, "@", all_seps=seps)
     split = _get_ref_chunk(ref, ":", all_seps=seps)
     config = _get_ref_chunk(ref, "~", all_seps=seps)
     
-    ds = load_dataset(
-        path=_get_ref_chunk(ref, all_seps=seps), 
-        name=config, 
-        split=split, 
-        revision=ver, 
-        cache_dir=datasets_cache,
-    )
+    lock_key = "::".join([
+        "hf",
+        repo,
+        config or "",
+        ver or "",
+    ])
+    lockfile = _lock_path(cache, lock_key)
+
+    with FileLock(
+        lockfile,
+        timeout=60 * 60,
+    ):
+        ds = load_dataset(
+            path=repo, 
+            name=config, 
+            split=split, 
+            revision=ver, 
+            cache_dir=datasets_cache,
+        )
     if isinstance(ds, DatasetDict):
         ds = concatenate_datasets([v for key, v in ds.items()])
     return ds
@@ -154,7 +171,7 @@ class AutoDataset:
     def load(
         cls, 
         data: str | DataFrame, 
-        cache: str | None
+        cache: str | None = None
     ) -> Union[Dataset, IterableDataset]:
         from datasets import load_dataset, Dataset, IterableDataset
         from pandas import DataFrame

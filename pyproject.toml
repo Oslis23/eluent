@@ -47,6 +47,7 @@ dependencies = [
   "schemist>=0.0.6", 
   "tdigest>=0.5", 
   "faiss-cpu>=1.11",
+  "filelock>=3.31.0",
 ]
 
 [project.optional-dependencies]
