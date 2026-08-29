@@ -29,8 +29,8 @@ def save_json(obj, filename: str) -> None:
 def to_dataset(
     ds: IterableDataset,
     batch_size: int = 1024,
-    nrows: Optional[int] = None,
-    cache: str = "./cache"
+    nrows: int | None = None,
+    cache: str | None = None
 ) -> Dataset:
     """Convert IterableDataset to Dataset.
 
@@ -46,6 +46,10 @@ def to_dataset(
     from datasets import Dataset, concatenate_datasets
     if isinstance(ds, Dataset):
         return ds
+
+    from .package_data import resolve_cache
+    cache = resolve_cache(cache)
+    
     new_ds = None
     total_iter = np.ceil(nrows / batch_size).astype(int) if nrows is not None else None
     for record in tqdm(ds.iter(batch_size=batch_size), total=total_iter, desc="Building dataset"):

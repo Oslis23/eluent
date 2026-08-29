@@ -27,7 +27,7 @@ def get_percentile(
     reverse: bool = False,
     delta: float = 1.,
     batch_size: int = 1024,
-    cache: str = "cache"
+    cache: str | None = None
 ):
     from datasets import Dataset, IterableDataset, concatenate_datasets
     if not reverse:
@@ -107,7 +107,7 @@ def percentiles(
     delta: float = .01,
     reverse: bool = False,
     batch_size: int = 1024,
-    cache: str = "./cache"
+    cache: str | None = None
 ):
     from datasets import Dataset, IterableDataset
     digests = {

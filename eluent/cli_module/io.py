@@ -10,7 +10,7 @@ def _resolve_and_slice_data(
     start: int | None = None,
     end: int | None = None,
     batch_size: int = 1024,
-    cache: str | None = CACHE_DIR
+    cache: str | None = None
 ):
     from ..utils.datasets_io import AutoDataset
     # from .utils.datasets import to_dataset

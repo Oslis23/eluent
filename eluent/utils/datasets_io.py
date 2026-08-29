@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 else:
     Dataset, DataFrame, IterableDataset = Any, Any, Any
 
-from .package_data import DEFAULT_CACHE
+from .package_data import resolve_cache
 
 
 DATASETS_PREFIX: str = "hf://datasets/"
@@ -23,18 +23,24 @@ DATASETS_PREFIX: str = "hf://datasets/"
 def hasher(s: str, n: int = 16) -> str:
     return hashlib.sha256(s).hexdigest()[:n]
 
-def _lock_path(cache_dir: str, key: str) -> str:
+def _lock_path(
+    key: str,
+    cache_dir: str = DEFAULT_CACHE
+) -> str:
     locks_dir = os.path.join(cache_dir, ".locks")
     os.makedirs(locks_dir, exist_ok=True)
     h = hasher(key.encode("utf-8"))
     return os.path.join(locks_dir, f"{h}.lock")
 
 
-def _load_from_file(filename: str, cache: Optional[str] = None) -> Dataset:
+def _load_from_file(
+    filename: str, 
+    cache: str | None = None
+) -> Dataset:
     from datasets import load_dataset, Dataset, DatasetDict
     from filelock import FileLock
 
-    cache = cache or DEFAULT_CACHE
+    cache = resolve_cache(cache)
     if filename.removesuffix(".gz").endswith((".csv", ".tsv", ".txt")):
         read_f = partial(
             load_dataset,
@@ -80,13 +86,11 @@ def _load_from_file(filename: str, cache: Optional[str] = None) -> Dataset:
 def _load_from_dataframe(
     cls,
     dataframe: Union[DataFrame, Mapping[str, ArrayLike], Iterable[Mapping[str, ArrayLike]]],
-    cache: Optional[str] = None
+    cache: str | None = None
 ) -> Dataset:
     from pandas import DataFrame
 
-    if cache is None:
-        cache = DEFAULT_CACHE
-        print_err(f"Defaulting to cache: {cache}")
+    cache = resolve_cache(cache)
     if not isinstance(dataframe, DataFrame):
         dataframe = DataFrame(dataframe)
 
@@ -118,9 +122,10 @@ def _get_ref_chunk(
 
 def _resolve_hf_hub_dataset(
     ref: str, 
-    cache: Optional[str] = None
+    cache: str | None = None
 ) -> Dataset:
     from datasets import concatenate_datasets, load_dataset, DatasetDict
+    cache = resolve_cache(cache)
 
     ref = ref.removeprefix(DATASETS_PREFIX).removeprefix("hf://")
     seps = "@~:"
@@ -148,8 +153,8 @@ class AutoDataset:
     @classmethod
     def load(
         cls, 
-        data: Union[str, DataFrame], 
-        cache: Optional[str] = None
+        data: str | DataFrame, 
+        cache: str = DEFAULT_CACHE
     ) -> Union[Dataset, IterableDataset]:
         from datasets import load_dataset, Dataset, IterableDataset
         from pandas import DataFrame

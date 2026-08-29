@@ -32,6 +32,7 @@ def _percentile(args: Namespace) -> None:
         args.input_file,
         start=args.start,
         end=args.end,
+        cache=args.cache,
     )
     # print(ds)
     # for b in ds:
@@ -59,7 +60,13 @@ def _percentile(args: Namespace) -> None:
             ds=ds,
             structure_column=args.structure,
             input_representation=args.input_representation,
-            split_columns=[col for col in ds.column_names if any(f"{_q}_top_" in col for _q in q)],
+            split_columns=[
+                col for col in ds.column_names 
+                if any(
+                    f"{_q}_top_" in col 
+                    for _q in q
+                )
+            ],
             sample_size=args.plot_sample,
             additional_columns=args.extras,
             seed=args.plot_seed,
