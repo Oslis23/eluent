@@ -32,6 +32,23 @@ def _get_data_path(
     cache_dir = resolve_cache(
         os.environ.get(env_key, default)
     )
-    os.environ["HF_HOME"] = cache_dir
-    os.environ["HF_DATASETS_CACHE"] = cache_dir
+    configure_hf_cache(cache_dir)
     return cache_dir, os.path.join(cache_dir, filename)
+
+
+def configure_hf_cache(
+    cache: str | None = None,
+) -> tuple[str, str, str]:
+    cache_root = resolve_cache(cache)
+
+    datasets_cache = os.path.join(cache_root, "datasets")
+    hub_cache = os.path.join(cache_root, "hub")
+
+    os.makedirs(datasets_cache, exist_ok=True)
+    os.makedirs(hub_cache, exist_ok=True)
+
+    os.environ["HF_HOME"] = cache_root
+    os.environ["HF_DATASETS_CACHE"] = datasets_cache
+    os.environ["HF_HUB_CACHE"] = hub_cache
+
+    return cache_root, datasets_cache, hub_cache

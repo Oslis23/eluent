@@ -7,10 +7,13 @@ from carabiner import print_err
 from carabiner.cliutils import clicommand
 
 from .io import _resolve_and_slice_data, _save_dataset
+from ..utils.package_data import configure_hf_cache
 
 
 @clicommand("Tagging data percentiles with the following parameters")
 def _percentile(args: Namespace) -> None:
+
+    cache, _, _ = configure_hf_cache(args.cache)
 
     if args.plot is not None and args.structure is None:
         raise ValueError(
@@ -32,7 +35,7 @@ def _percentile(args: Namespace) -> None:
         args.input_file,
         start=args.start,
         end=args.end,
-        cache=args.cache,
+        cache=cache,
     )
     # print(ds)
     # for b in ds:
@@ -45,7 +48,7 @@ def _percentile(args: Namespace) -> None:
         compression=args.compression,
         delta=args.delta,
         reverse=args.reverse,
-        cache=args.cache,
+        cache=cache,
     )
     _save_dataset(ds, output)
 
@@ -70,7 +73,7 @@ def _percentile(args: Namespace) -> None:
             sample_size=args.plot_sample,
             additional_columns=args.extras,
             seed=args.plot_seed,
-            cache=args.cache,
+            cache=cache,
         )
         root, ext = os.path.splitext(args.plot)
         figsaver(format=ext.lstrip("."))(fig, root, df=df)

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 else:
     Dataset, DataFrame, IterableDataset = Any, Any, Any
 
-from .package_data import resolve_cache
+from .package_data import resolve_cache, configure_hf_cache
 
 
 DATASETS_PREFIX: str = "hf://datasets/"
@@ -25,8 +25,9 @@ def hasher(s: str, n: int = 16) -> str:
 
 def _lock_path(
     key: str,
-    cache_dir: str = DEFAULT_CACHE
+    cache_dir: str | None = None
 ) -> str:
+    cache_dir = resolve_cache(cache_dir)
     locks_dir = os.path.join(cache_dir, ".locks")
     os.makedirs(locks_dir, exist_ok=True)
     h = hasher(key.encode("utf-8"))
@@ -37,16 +38,17 @@ def _load_from_file(
     filename: str, 
     cache: str | None = None
 ) -> Dataset:
+
+    cache, datasets_cache, _ = configure_hf_cache(cache)
     from datasets import load_dataset, Dataset, DatasetDict
     from filelock import FileLock
 
-    cache = resolve_cache(cache)
     if filename.removesuffix(".gz").endswith((".csv", ".tsv", ".txt")):
         read_f = partial(
             load_dataset,
             path="csv",
             data_files=filename,
-            cache_dir=cache,
+            cache_dir=datasets_cache,
             sep="," if filename.endswith((".csv", ".csv.gz")) else "\t",
         )
         lock_key = ("csv", read_f.keywords.get('sep'))
@@ -57,7 +59,7 @@ def _load_from_file(
             load_dataset,
             path=protocol,
             data_files=filename,
-            cache_dir=cache,
+            cache_dir=datasets_cache,
         )
         lock_key = (protocol, "")
     elif filename.endswith(".hf"):
@@ -68,10 +70,6 @@ def _load_from_file(
         lock_key = ("hf", "")
     else:
         raise IOError(f"Could not infer how to open '{filename}' from its extension.")
-
-    # If no cache, nothing sensible to lock on
-    if cache is None:
-        ds = read_f()
 
     # Cross-task lock on the shared filesystem
     lockfile = _lock_path(cache, "_".join(lock_key))
@@ -91,6 +89,7 @@ def _load_from_dataframe(
     from pandas import DataFrame
 
     cache = resolve_cache(cache)
+
     if not isinstance(dataframe, DataFrame):
         dataframe = DataFrame(dataframe)
 
@@ -124,8 +123,9 @@ def _resolve_hf_hub_dataset(
     ref: str, 
     cache: str | None = None
 ) -> Dataset:
+
+    cache, datasets_cache, _ = configure_hf_cache(cache)
     from datasets import concatenate_datasets, load_dataset, DatasetDict
-    cache = resolve_cache(cache)
 
     ref = ref.removeprefix(DATASETS_PREFIX).removeprefix("hf://")
     seps = "@~:"
@@ -138,7 +138,7 @@ def _resolve_hf_hub_dataset(
         name=config, 
         split=split, 
         revision=ver, 
-        cache_dir=cache,
+        cache_dir=datasets_cache,
     )
     if isinstance(ds, DatasetDict):
         ds = concatenate_datasets([v for key, v in ds.items()])
@@ -154,10 +154,12 @@ class AutoDataset:
     def load(
         cls, 
         data: str | DataFrame, 
-        cache: str = DEFAULT_CACHE
+        cache: str | None
     ) -> Union[Dataset, IterableDataset]:
         from datasets import load_dataset, Dataset, IterableDataset
         from pandas import DataFrame
+
+        cache = resolve_cache(cache)
 
         if isinstance(data, (Dataset, IterableDataset)):
             dataset = data
