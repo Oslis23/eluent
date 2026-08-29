@@ -102,24 +102,59 @@ def _load_from_file(
 
 
 def _load_from_dataframe(
-    dataframe: DataFrame | Mapping[str, ArrayLike] | Iterable[Mapping[str, ArrayLike]],
-    cache: str | None = None
+    dataframe: DataFrame | Mapping[str, ArrayLike],
+    cache: str | None = None,
 ) -> Dataset:
-    from pandas import DataFrame
 
-    cache = resolve_cache(cache)
+    cache, datasets_cache, _ = configure_hf_cache(cache)
+    from datasets import Dataset
+    from filelock import FileLock
+    from pandas import DataFrame
+    from pandas.util import hash_pandas_object
 
     if not isinstance(dataframe, DataFrame):
         dataframe = DataFrame(dataframe)
 
-    hash_name = hasher(dataframe.to_string())
-    with tempfile.TemporaryDirectory() as tmpdir:
-        csv_filename = os.path.join(tmpdir, f"{hash_name}.csv.gz")
-        dataframe.to_csv(csv_filename, index=False)
-        ds = _load_from_file(
-            csv_filename, 
-            cache=cache,
+    fingerprint = hashlib.sha256()
+    fingerprint.update(
+        repr([
+            (str(col), str(dtype))
+            for col, dtype in dataframe.dtypes.items()
+        ]).encode()
+    )
+    fingerprint.update(
+        hash_pandas_object(
+            dataframe,
+            index=False,
+        ).values.tobytes()
+    )
+    fingerprint = fingerprint.hexdigest()[:16]
+
+    csv_dir = os.path.join(cache, "dataframes")
+    csv_filename = f"{fingerprint}.csv"
+    csv_path = os.path.join(csv_dir, f"{fingerprint}.csv")
+    if os.path.exists(csv_path):
+        return _load_from_file(
+            filename=csv_path, 
+            cache=datasets_cache,
         )
+
+    lockfile = _lock_path(
+        key=f"dataframe::{fingerprint}",
+        cache_dir=csv_dir,
+    )
+    with FileLock(lockfile, timeout=60. * 60.):
+        if os.path.exists(csv_path):
+            return _load_from_file(
+                filename=csv_path, 
+                cache=datasets_cache,
+            )
+        dataframe.to_csv(csv_path, index=False)
+        ds = _load_from_file(
+            filename=csv_path, 
+            cache=datasets_cache,
+        )
+
     return ds["train"]
 
 
