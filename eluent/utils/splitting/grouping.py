@@ -13,9 +13,9 @@ from schemist.features import calculate_feature
 
 from .bin_packing import pack_bins
 from .decorators import process_splits
-from .disjoint_set import NumpyDisjointSet
 
 GROUPING_FUNCTIONS: Dict[str, Callable] = {}
+
 
 @decorator_with_params
 def _add_to_grouping_registry(fn: Callable, key: str) -> Callable:
@@ -92,13 +92,13 @@ def _morgan_fingerprint(
 def _faiss_component(
     x: Mapping[str, str], 
     indices: Iterable[int], 
-    disjoint_set: NumpyDisjointSet,
+    component_labels: np.ndarray,
     **kwargs
-) -> Dict[str, ...]:
+) -> dict[str, ...]:
     """Tag each entry with its graph component.
 
     """
-    return [disjoint_set.find(i) for i in indices]
+    return component_labels[np.asarray(indices)].tolist()
 
 
 @_add_to_grouping_registry(key="random")
