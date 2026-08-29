@@ -43,15 +43,27 @@ def _load_from_file(
     from datasets import load_dataset, Dataset, DatasetDict
     from filelock import FileLock
 
+    filename = os.path.realpath(
+        os.path.abspath(
+            os.path.expanduser(filename)
+        )
+    )
+
     if filename.removesuffix(".gz").endswith((".csv", ".tsv", ".txt")):
+        sep = "," if filename.endswith((".csv", ".csv.gz")) else "\t"
         read_f = partial(
             load_dataset,
             path="csv",
             data_files=filename,
             cache_dir=datasets_cache,
-            sep="," if filename.endswith((".csv", ".csv.gz")) else "\t",
+            sep=sep,
         )
-        lock_key = ("csv", read_f.keywords.get('sep'))
+        lock_key = "::".join([
+            "file",
+            "csv",
+            filename,
+            sep,
+        ])
     elif filename.endswith((".arrow", ".hd5", ".json", ".parquet", ".xml")):
         _, ext = os.path.splitext(filename)
         protocol = ext.lstrip(".")
@@ -61,27 +73,27 @@ def _load_from_file(
             data_files=filename,
             cache_dir=datasets_cache,
         )
-        lock_key = (protocol, "")
+        lock_key = "::".join([
+            "file",
+            protocol,
+            filename,
+        ])
     elif filename.endswith(".hf"):
-        read_f = partial(
-            Dataset.load_from_disk, 
-            dataset_path=filename,
-        )
-        lock_key = ("hf", "")
+        ds = Dataset.load_from_disk(filename)
+        if isinstance(ds, DatasetDict):
+            return ds["train"]
+        return ds
     else:
         raise IOError(f"Could not infer how to open '{filename}' from its extension.")
 
     # Cross-task lock on the shared filesystem
     lockfile = _lock_path(
-        key="_".join(lock_key),
+        key=lock_key,
         cache=cache, 
     )
     with FileLock(lockfile, timeout=60. * 60.):
         ds = read_f()
-    if isinstance(ds, DatasetDict):
-        return ds["train"]
-    else:
-        return ds
+    return ds
 
 
 def _load_from_dataframe(
