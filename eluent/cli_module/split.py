@@ -12,6 +12,7 @@ from .io import _resolve_and_slice_data, _save_dataset
 @clicommand("Splitting data with the following parameters")
 def _split(args: Namespace) -> None:
     from datasets import concatenate_datasets, DatasetDict
+    from ..utils.package_data import CACHE_DIR
     from ..utils.splitting import split_dataset
     from ..utils.splitting.utils import dataset_len
     output = args.output
@@ -28,6 +29,7 @@ def _split(args: Namespace) -> None:
         args.input_file,
         start=args.start,
         end=args.end,
+        cache=args.cache or CACHE_DIR,
     )
     if args.type == "faiss":
         faiss_opts = {
