@@ -19,7 +19,7 @@ from .grouping import tag_top
     
 
 def get_percentile(
-    ds: Union[Dataset, IterableDataset],
+    ds: Dataset | IterableDataset,
     column: str,
     digest: TDigest,
     p: float,
@@ -27,7 +27,7 @@ def get_percentile(
     reverse: bool = False,
     delta: float = 1.,
     batch_size: int = 1024,
-    cache: str = "cache"
+    cache: str | None = None
 ):
     from datasets import Dataset, IterableDataset, concatenate_datasets
     if not reverse:
@@ -87,9 +87,9 @@ def get_percentile(
             maybes_to_false,
         ])
     final_ds = concatenate_datasets([
-        to_dataset_p(ds_tfm[1], nrows=dataset_len(ds_tfm[1])), 
+        to_dataset_p(ds_tfm[1]), 
         maybes_resolved,
-        to_dataset_p(ds_tfm[-1], nrows=dataset_len(ds_tfm[-1])),
+        to_dataset_p(ds_tfm[-1]),
     ]).map(
         lambda x: {top_col: [v == 1 for v in x[top_col]]}, 
         desc="Polishing percentile column",
@@ -101,13 +101,13 @@ def get_percentile(
 
 
 def percentiles(
-    ds: Union[Dataset, IterableDataset],
+    ds: Dataset | IterableDataset,
     q: Mapping[str, Iterable[float]],
     compression: int = 500,
     delta: float = .01,
     reverse: bool = False,
     batch_size: int = 1024,
-    cache: str = "./cache"
+    cache: str | None = None
 ):
     """Tag rows in the top (or bottom) percentiles of columns, out-of-core.
 

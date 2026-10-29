@@ -11,6 +11,8 @@ from .disjoint_set import NumpyDisjointSet
 from .grouping import _morgan_fingerprint
 from .utils import dataset_len
 
+FAISS_COMPONENT_CACHE_VERSION = 1
+
 
 def add_faiss_index(
     ds: Union[Dataset, IterableDataset],
@@ -20,11 +22,29 @@ def add_faiss_index(
     fingerprint_column: str = "_faiss_fp_",
     batch_size: int = 1024,
     gpu: bool = False,
+    cache: str | None = None,
     **kwargs
 ) -> Union[Dataset, IterableDataset]:
     """Compute Morgan fingerprints, build FAISS k-NN graph, annotate components.
     
     """
+    import os
+
+    from filelock import FileLock
+
+    from ..datasets_io import hasher, _lock_path
+    from ..package_data import resolve_cache
+
+    cache = resolve_cache(cache)
+    ds_fingerprint = ds._fingerprint
+    cache_key = "::".join([
+        f"faiss-components-v{FAISS_COMPONENT_CACHE_VERSION}",
+        ds_fingerprint,
+        structure_column,
+        input_representation,
+        str(n_neighbors),
+        str(gpu),
+    ])
     ds = (
         ds
         .map(
@@ -39,40 +59,117 @@ def add_faiss_index(
             desc="Annotating fingerprint",
         )
     )
-    ds = ds.add_faiss_index(
-        column=fingerprint_column, 
-        index_name=f"{fingerprint_column}_idx",
-        custom_index=faiss.IndexBinaryFlat(2048),  # Hamming/Jaccard on 2048-bit vectors
-        device=0 if gpu else None,
-        dtype=np.uint8,
+    component_cache_dir = os.path.join(
+        cache,
+        "eluent",
+        "faiss-components",
+    )
+    os.makedirs(component_cache_dir, exist_ok=True)
+
+    component_cache_file = os.path.join(
+        component_cache_dir,
+        f"{hasher(cache_key)}.npy",
     )
 
-    N = dataset_len(ds)
-    djs = NumpyDisjointSet(N)
-
-    iterator = tqdm(
-        ds.iter(batch_size=batch_size),
-        desc=f"Finding {n_neighbors} nearest neighbors per molecule",
-        total=np.ceil(N / batch_size).astype(int),
+    lockfile = _lock_path(
+        key=cache_key,
+        cache_dir=cache,
     )
-    for i, batch in enumerate(iterator):
-        start = i * batch_size
-        batch_fp = np.asarray(batch[fingerprint_column]).astype(np.uint8)
-        scores, indices = ds.search_batch(
-            f"{fingerprint_column}_idx", 
-            batch_fp,
-            k=n_neighbors,
+    if os.path.exists(component_cache_file):
+        component_labels = np.load(
+            component_cache_file,
+            allow_pickle=False,
         )
-        for row_of_batch, neighbor_id_list in enumerate(indices):
-            row_of_dataset = start + row_of_batch
-            # skip neighbor_id_list[0] because it is itself
-            for neighbor_id in neighbor_id_list[1:]:
-                djs.merge(row_of_dataset, int(neighbor_id))
+        return ds, {
+            "component_labels": component_labels,
+        }
+    with FileLock(lockfile, timeout=60. * 60.):
+        if os.path.exists(component_cache_file):
+            component_labels = np.load(
+                component_cache_file,
+                allow_pickle=False,
+            )
+            return ds, {
+                "component_labels": component_labels,
+            }
 
-    # path-compression pass
-    for i in trange(N, desc="Compressing search path"):
-        djs.parent[i] = djs.find(i)
+        if os.path.exists(component_cache_file):
+            component_labels = np.load(
+                component_cache_file,
+                allow_pickle=False,
+            )
+            return ds, {
+                "component_labels": component_labels,
+            }
 
-    # prevents pickling error in .map()
-    ds.drop_index(f"{fingerprint_column}_idx") 
-    return ds, {"disjoint_set": djs}
+        ds_fp = ds.map(
+            _morgan_fingerprint,
+            fn_kwargs={
+                "structure_column": structure_column,
+                "input_representation": input_representation,
+                "column": fingerprint_column,
+            },
+            batched=True,
+            batch_size=batch_size,
+            desc="Annotating fingerprint",
+        )
+
+        ds_fp = ds_fp.add_faiss_index(
+            column=fingerprint_column,
+            index_name=f"{fingerprint_column}_idx",
+            custom_index=faiss.IndexBinaryFlat(2048),
+            device=0 if gpu else None,
+            dtype=np.uint8,
+        )
+
+        N = dataset_len(ds_fp)
+        djs = NumpyDisjointSet(N)
+
+        iterator = tqdm(
+            ds_fp.iter(batch_size=batch_size),
+            desc=f"Finding {n_neighbors} nearest neighbors per molecule",
+            total=np.ceil(N / batch_size).astype(int),
+        )
+        for i, batch in enumerate(iterator):
+            start = i * batch_size
+            batch_fp = np.asarray(
+                batch[fingerprint_column]
+            ).astype(np.uint8)
+
+            _, indices = ds_fp.search_batch(
+                f"{fingerprint_column}_idx",
+                batch_fp,
+                k=n_neighbors,
+            )
+
+            for row_of_batch, neighbor_id_list in enumerate(indices):
+                row_of_dataset = start + row_of_batch
+                for neighbor_id in neighbor_id_list[1:]:
+                    djs.merge(
+                        row_of_dataset,
+                        int(neighbor_id),
+                    )
+
+        component_labels = np.empty(N, dtype=np.int32)
+        for i in trange(N, desc="Compressing search path"):
+            component_labels[i] = djs.find(i)
+
+        ds_fp.drop_index(
+            f"{fingerprint_column}_idx"
+        )
+        tmp_file = (
+            f"{component_cache_file}."
+            f"{os.getpid()}.tmp.npy"
+        )
+        np.save(
+            tmp_file,
+            component_labels,
+            allow_pickle=False,
+        )
+        os.replace(
+            tmp_file,
+            component_cache_file,
+        )
+        return ds, {
+            "component_labels": component_labels,
+        }

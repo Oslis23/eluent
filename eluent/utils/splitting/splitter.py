@@ -56,8 +56,14 @@ class SplitDataset:
             ds, info = preprocess(ds)
         else:
             ds, info = ds, None
-        if info is not None and isinstance(info, dict):
-            kwargs |= info
+        if method == "faiss":
+            group_kwargs = {
+                "component_labels": info["component_labels"],
+            }
+        else:
+            group_kwargs = kwargs
+            if info is not None and isinstance(info, dict):
+                group_kwargs |= info
         if isinstance(ds, Dataset):
             desc = {"desc": f"Setting groups using {method}"}
         else:
@@ -65,7 +71,7 @@ class SplitDataset:
         return DatasetDict({
             key: ds.map(
                 group_fn,
-                fn_kwargs=kwargs | {"column": group_column},
+                fn_kwargs=group_kwargs | {"column": group_column},
                 with_indices=True,
                 batched=True,
                 batch_size=batch_size,

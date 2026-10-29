@@ -45,8 +45,8 @@ def main() -> None:
     cache = CLIOption(
         '--cache',
         type=str,
-        default=".",
-        help='Where to cache data.',
+        default=None,
+        help='Where to cache data. Default: infer from environment/platform.',
     )
     batch_size = CLIOption(
         '--batch', '-b',

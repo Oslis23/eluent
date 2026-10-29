@@ -2,17 +2,20 @@ from typing import Mapping, Optional, Union
 
 from carabiner import print_err
 
+from ..utils.package_data import CACHE_DIR
+
 
 def _resolve_and_slice_data(
     data: str,
-    start: Optional[int] = None,
-    end: Optional[int] = None,
-    batch_size: int = 1024
+    start: int | None = None,
+    end: int | None = None,
+    batch_size: int = 1024,
+    cache: str | None = None
 ):
     from ..utils.datasets_io import AutoDataset
     # from .utils.datasets import to_dataset
 
-    candidates_ds = AutoDataset.load(data)._dataset
+    candidates_ds = AutoDataset.load(data, cache=cache)._dataset
     nrows = candidates_ds.num_rows
     skip = start or 0
     take = (end or nrows) - skip

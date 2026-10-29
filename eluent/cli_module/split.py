@@ -7,11 +7,16 @@ from carabiner import pprint_dict, print_err
 from carabiner.cliutils import clicommand
 
 from .io import _resolve_and_slice_data, _save_dataset
+from ..utils.package_data import configure_hf_cache
 
 
 @clicommand("Splitting data with the following parameters")
 def _split(args: Namespace) -> None:
+
+    cache, _, _ = configure_hf_cache(args.cache)
+
     from datasets import concatenate_datasets, DatasetDict
+
     from ..utils.splitting import split_dataset
     from ..utils.splitting.utils import dataset_len
     output = args.output
@@ -28,10 +33,11 @@ def _split(args: Namespace) -> None:
         args.input_file,
         start=args.start,
         end=args.end,
+        cache=cache,
     )
     if args.type == "faiss":
         faiss_opts = {
-            "cache": args.cache,
+            "cache": cache,
             "n_neighbors": args.n_neighbors,
         }
     else:
@@ -90,7 +96,7 @@ def _split(args: Namespace) -> None:
                 sample_size=args.plot_sample,
                 additional_columns=args.extras,
                 seed=args.plot_seed,
-                cache=args.cache,
+                cache=cache,
             )
             plot_outdir = os.path.dirname(args.plot)
             if len(plot_outdir) > 0:

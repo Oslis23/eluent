@@ -1,9 +1,6 @@
 """Utilities for dealing with Hugging Face datasets."""
 
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Tuple, Union
-
-import os
-from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any, Mapping, Union
 
 from carabiner import print_err
 
@@ -19,18 +16,18 @@ else:
 import numpy as np
 from tqdm.auto import tqdm
 
+from .package_data import configure_hf_cache
 
-def save_json(obj, filename: str) -> None:
-      import json
-      with open(filename, "w") as f:
-          json.dump(obj, f)
+
+def _iter_dataset(ds):
+    yield from ds
 
 
 def to_dataset(
     ds: IterableDataset,
     batch_size: int = 1024,
-    nrows: Optional[int] = None,
-    cache: str = "./cache"
+    nrows: int | None = None,
+    cache: str | None = None
 ) -> Dataset:
     """Convert IterableDataset to Dataset.
 
@@ -43,30 +40,25 @@ def to_dataset(
 
     """
 
+    _, datasets_cache, _ = configure_hf_cache(cache)
+
     from datasets import Dataset, concatenate_datasets
     if isinstance(ds, Dataset):
         return ds
-    new_ds = None
-    total_iter = np.ceil(nrows / batch_size).astype(int) if nrows is not None else None
-    for record in tqdm(ds.iter(batch_size=batch_size), total=total_iter, desc="Building dataset"):
-        if new_ds is not None:
-            with TemporaryDirectory() as tmpdirname:
-                filename = os.path.join(tmpdirname, "add-record.json")
-                save_json(record, filename)
-                new_ds = concatenate_datasets([new_ds, Dataset.from_json(filename, cache_dir=cache)])
-        else:
-            with TemporaryDirectory() as tmpdirname:
-                filename = os.path.join(tmpdirname, "init-record.json")
-                save_json(record, filename)
-                new_ds = Dataset.from_json(filename, cache_dir=cache)
-    return new_ds
+
+    return Dataset.from_generator(
+        _iter_dataset,
+        gen_kwargs={"ds": ds},
+        features=getattr(ds, "features", None),
+        cache_dir=datasets_cache,
+    )
 
 
 def top_n(
-    ds: Union[Dataset, IterableDataset],
+    ds: Dataset | IterableDataset,
     column: str,
     n: int = 100,
-    ds_rows: Optional[int] = None
+    ds_rows: int | None = None
 ) -> list:
     buffer = set()
     for record in tqdm(ds, total=ds_rows):
@@ -86,7 +78,7 @@ def _stream_and_subsample(
     ds: Dataset,
     min_subsample: int,
     total_rows: int,
-    subsample: Optional[int] = None,
+    subsample: int | None = None,
     seed: int = 0,
     shuffle_buffer: int = 10_000,
     n_shards: int = 1024
@@ -110,12 +102,12 @@ def _stream_and_subsample(
 
 
 def _get_cutoff(
-    ds: Union[Dataset, IterableDataset],
+    ds: Dataset | IterableDataset,
     total_rows: int,
     column: str,
     n_hits: int,
-    subsample: Optional[int] = None
-) -> Union[float, int]:
+    subsample: int | None = None
+) -> float | int:
     subsample = subsample or total_rows
     subsample = min(subsample, total_rows)
     top_n_values = top_n(
@@ -128,15 +120,15 @@ def _get_cutoff(
     
     
 def split_3way(
-    ds: Union[Dataset, IterableDataset],
-    n_train: Optional[int] = None, 
+    ds: Dataset | IterableDataset,
+    n_train: int | None = None, 
     n_val: int = 0, 
-    n_test: Optional[int] = None, 
-    filter_column: Optional[str] = None,
+    n_test: int | None = None, 
+    filter_column: str | None = None,
     ascending: bool = False,
-    sample_for_cutoff: Optional[int] = None,
+    sample_for_cutoff: int | None = None,
     hit_frac: float = .01,
-    initial_subsample: Optional[int] = None, 
+    initial_subsample: int | None = None, 
     seed: int = 0,
     shuffle_buffer: int = 10_000,
     n_shards: int = 1024
@@ -207,15 +199,15 @@ def split_3way(
             .shuffle(seed=seed, buffer_size=shuffle_buffer)
         )
         ds = {
-            "train": to_dataset(ds_train_and_val.take(n_train), ds_rows=n_train),
-            "val": to_dataset(ds_train_and_val.skip(n_train), ds_rows=n_val),
-            "test": to_dataset(ds_test, ds_rows=n_test),
+            "train": to_dataset(ds_train_and_val.take(n_train)),
+            "val": to_dataset(ds_train_and_val.skip(n_train)),
+            "test": to_dataset(ds_test),
         }
     else:
         ds = {
-            "train": to_dataset(ds_stream.take(n_train), ds_rows=n_train),
-            "val": to_dataset(ds_stream.skip(n_train).take(n_val), ds_rows=n_val),
-            "test": to_dataset(ds_stream.skip(n_train + n_val).take(n_test), ds_rows=n_test),
+            "train": to_dataset(ds_stream.take(n_train)),
+            "val": to_dataset(ds_stream.skip(n_train).take(n_val)),
+            "test": to_dataset(ds_stream.skip(n_train + n_val).take(n_test)),
         }
     return DatasetDict(ds)
 
@@ -223,21 +215,21 @@ def split_3way(
 def split_al_pools(
     ds: Dataset, 
     n_initial: int, 
-    candidate_filter: Optional[Mapping] = None,
-    n_candidates: Optional[int] = None, 
-    n_val: Optional[int] = None, 
-    batch_size: Optional[int] = None, 
-    n_test: Optional[int] = None, 
+    candidate_filter: Mapping | None = None,
+    n_candidates: int | None = None, 
+    n_val: int | None = None, 
+    batch_size: int | None = None, 
+    n_test: int | None = None, 
     n_batches: int = 20,
-    filter_column: Optional[str] = None,
+    filter_column: str | None = None,
     hit_frac: float = .05,
-    sample_for_cutoff: Optional[int] = None, 
-    initial_subsample: Optional[int] = None, 
+    sample_for_cutoff: int | None = None, 
+    initial_subsample: int | None = None, 
     ascending: bool = False,
     seed: int = 0,
     shuffle_buffer: int = 10_000,
     n_shards: int = 1024
-) -> Tuple[Tuple[int], DatasetDict]:
+) -> tuple[tuple[int], DatasetDict]:
 
     from datasets import DatasetDict, concatenate_datasets
     
